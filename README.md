@@ -15,9 +15,9 @@ Options are provided with a single function call with the following parameters:
 * Help string
 * Required flag
 
-  name := clap.String("n", "name", "", "Name of someone", false)
-  age := clap.Int("a", "age", 20, "Age of someone [default: 20]", false)
-  real := clap.Bool("r", "real", false, "Real person", false)
+    name := clap.String("n", "name", "", "Name of someone", false)
+    age := clap.Int("a", "age", 20, "Age of someone [default: 20]", false)
+    real := clap.Bool("r", "real", false, "Real person", false)
 
 If an option is required, but is not provided on the command line, an error message is displayed and the program
 will exit with code 255. Currently only string options work like this.
