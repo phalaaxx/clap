@@ -9,15 +9,16 @@ Currently clap supports only String, Int and Bool options.
 
 Options are provided with a single function call with the following parameters:
 
-* Short name
-* Long name
-* Default value
-* Help string
-* Required flag
+* Short name    (rune)
+* Long name     (string)
+* Default value (varies)
+* Help string   (string)
+* Required flag (bool)
 
-    name := clap.String("n", "name", "", "Name of someone", false)
-    age := clap.Int("a", "age", 20, "Age of someone [default: 20]", false)
-    real := clap.Bool("r", "real", false, "Real person", false)
+    nameOpt := clap.String('n', "name", "", "Name of someone", false)
+    ageOpt := clap.Int('a', "age", 20, "Age of someone [default: 20]", false)
+    realOpt := clap.Bool('r', "real", false, "Real person", false)
+    longOpt := clap.Int(0, "long-option", 15, "Long-option only [default: 15], false)
 
 If an option is required, but is not provided on the command line, an error message is displayed and the program
 will exit with code 255. Currently only string options work like this.

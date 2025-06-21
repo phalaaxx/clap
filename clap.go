@@ -18,7 +18,7 @@ const (
 type argumentHelp struct {
 	ArgType   int
 	ArgLen    int
-	ShortName string
+	ShortName rune
 	LongName  string
 	HelpText  string
 	Required  bool
@@ -27,6 +27,65 @@ type argumentHelp struct {
 
 /* String representation of the argument help */
 func (a argumentHelp) String(isTerminal bool, maxLen int) (result string) {
+	/* option creates a printable option representation */
+	option := func(name string, short bool, isTerminal bool) string {
+		if len(name) == 0 {
+			return ""
+		}
+		shortOption := map[bool]string{
+			true:  "-",
+			false: "--",
+		}
+		if !isTerminal {
+			return fmt.Sprintf("%s%s", shortOption[short], name)
+		}
+		return fmt.Sprintf("\033[01;38m%s%s\033[00m", shortOption[short], name)
+	}
+
+	optLen := func(maxLen int) (oLen int) {
+		oLen = maxLen - a.ArgLen + 2
+		if a.ArgType == argBool {
+			oLen += 3
+		}
+		return
+	}
+	/* build option string */
+	var optionStr string
+	if a.ShortName != 0 {
+		if len(a.LongName) != 0 {
+			optionStr = fmt.Sprintf(
+				"  %s, %s",
+				option(string(a.ShortName), true, isTerminal),
+				option(a.LongName, false, isTerminal),
+			)
+		} else {
+			optionStr = fmt.Sprintf(
+				"  %s",
+				option(string(a.ShortName), true, isTerminal),
+			)
+		}
+	} else {
+		if len(a.LongName) != 0 {
+			optionStr = fmt.Sprintf(
+				"      %s",
+				option(a.LongName, false, isTerminal),
+			)
+		}
+	}
+	if a.ArgType == argString || a.ArgType == argInt {
+		if len(a.LongName) != 0 {
+			optionStr = fmt.Sprintf("%s <%s>", optionStr, strings.ToUpper(a.LongName))
+		}
+	}
+	/* add padding */
+	optionStr = fmt.Sprintf(
+		"%s%s%s",
+		optionStr,
+		strings.Repeat(" ", optLen(maxLen)),
+		a.HelpText,
+	)
+	fmt.Printf("%s\n", optionStr)
+	return
 	/* generate color format */
 	terminalFmt := func(maxLen int) (result string) {
 		switch a.ArgType {
@@ -93,15 +152,19 @@ var (
 )
 
 /* String command line option */
-func String(shortName, longName string, defaultValue string, helpText string, required bool) *string {
+func String(shortName rune, longName string, defaultValue string, helpText string, required bool) *string {
 	result := new(string)
-	flag.StringVar(result, shortName, defaultValue, helpText)
-	flag.StringVar(result, longName, defaultValue, helpText)
+	if shortName != 0 {
+		flag.StringVar(result, string(shortName), defaultValue, helpText)
+	}
+	if len(longName) != 0 {
+		flag.StringVar(result, longName, defaultValue, helpText)
+	}
 	argHelp = append(
 		argHelp,
 		argumentHelp{
 			ArgType:   argString,
-			ArgLen:    len(shortName) + 2*len(longName),
+			ArgLen:    4 + 2*len(longName),
 			ShortName: shortName,
 			LongName:  longName,
 			HelpText:  helpText,
@@ -113,15 +176,19 @@ func String(shortName, longName string, defaultValue string, helpText string, re
 }
 
 /* Int command line option */
-func Int(shortName, longName string, defaultValue int, helpText string, required bool) *int {
+func Int(shortName rune, longName string, defaultValue int, helpText string, required bool) *int {
 	result := new(int)
-	flag.IntVar(result, shortName, defaultValue, helpText)
-	flag.IntVar(result, longName, defaultValue, helpText)
+	if shortName != 0 {
+		flag.IntVar(result, string(shortName), defaultValue, helpText)
+	}
+	if len(longName) != 0 {
+		flag.IntVar(result, longName, defaultValue, helpText)
+	}
 	argHelp = append(
 		argHelp,
 		argumentHelp{
 			ArgType:   argInt,
-			ArgLen:    len(shortName) + 2*len(longName),
+			ArgLen:    4 + 2*len(longName),
 			ShortName: shortName,
 			LongName:  longName,
 			HelpText:  helpText,
@@ -133,15 +200,19 @@ func Int(shortName, longName string, defaultValue int, helpText string, required
 }
 
 /* Bool command line option */
-func Bool(shortName, longName string, defaultValue bool, helpText string, required bool) *bool {
+func Bool(shortName rune, longName string, defaultValue bool, helpText string, required bool) *bool {
 	result := new(bool)
-	flag.BoolVar(result, shortName, defaultValue, helpText)
-	flag.BoolVar(result, longName, defaultValue, helpText)
+	if shortName != 0 {
+		flag.BoolVar(result, string(shortName), defaultValue, helpText)
+	}
+	if len(longName) != 0 {
+		flag.BoolVar(result, longName, defaultValue, helpText)
+	}
 	argHelp = append(
 		argHelp,
 		argumentHelp{
 			ArgType:   argBool,
-			ArgLen:    len(shortName) + len(longName),
+			ArgLen:    4 + len(longName),
 			ShortName: shortName,
 			LongName:  longName,
 			HelpText:  helpText,
