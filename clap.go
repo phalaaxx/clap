@@ -320,6 +320,15 @@ func ErrNoArg() {
 
 /* Parse is a wrapper around flag.Parse function */
 func Parse(required bool) {
+	/* argCheck returns true if specified option is provided as a command line argument */
+	argCheck := func(arg string) bool {
+		for _, opt := range os.Args {
+			if arg == opt {
+				return true
+			}
+		}
+		return false
+	}
 	/* print error on empty arguments list when at least one argument is required */
 	if required && len(os.Args) == 1 {
 		ErrNoArg()
@@ -327,16 +336,12 @@ func Parse(required bool) {
 	/* parse and check if required arguments are provided */
 	flag.Parse()
 	for _, arg := range argHelp {
-		/* do not check non-mandatory arguments */
-		if !arg.Required {
-			continue
-		}
-		/* do not check bool arguments */
-		if !arg.HasValue {
+		/* do not check non-mandatory and bool arguments */
+		if !arg.Required || !arg.HasValue {
 			continue
 		}
 		/* make sure value is provided */
-		if len(*arg.Value.(*string)) == 0 {
+		if !argCheck("--" + arg.LongName) && (arg.ShortName == 0 || !argCheck("-" + string(arg.ShortName))) {
 			fmt.Printf(errorHelp(isTerminal))
 			os.Exit(-1)
 		}
