@@ -30,6 +30,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 )
 
@@ -188,6 +189,9 @@ var (
 	Uint    = generic[uint]
 	Uint64  = generic[uint64]
 	Bool    = generic[bool]
+	/* direct flag mappings */
+	NArg = flag.NArg
+	Arg  = flag.Arg
 )
 
 /* Var is a special-case function / wrapper around flag.Var for custom data type flags */
@@ -222,7 +226,7 @@ func errorHelp(isTerminal bool) string {
 	/* add arguments to error message */
 	for _, arg := range argHelp {
 		if arg.Required {
-			argStr := "  \033[02;32m--%s <%s>\033[00m\n"
+			argStr := "  \033[00;32m--%s <%s>\033[00m\n"
 			if !isTerminal {
 				argStr = "  --%s <%s>\n"
 			}
@@ -250,7 +254,7 @@ func errorHelp(isTerminal bool) string {
 			"%s %s",
 			fmt.Sprintf(
 				usageHelp,
-				os.Args[0],
+				path.Base(os.Args[0]),
 			),
 			fmt.Sprintf(
 				argHelp,
@@ -297,7 +301,7 @@ func usageHeader(isTerminal bool) string {
 	}
 	return fmt.Sprintf(
 		"%s\n\n%s",
-		fmt.Sprintf(header, os.Args[0]),
+		fmt.Sprintf(header, path.Base(os.Args[0])),
 		optHdr,
 	)
 }
@@ -341,7 +345,7 @@ func Parse(required bool) {
 			continue
 		}
 		/* make sure value is provided */
-		if !argCheck("--" + arg.LongName) && (arg.ShortName == 0 || !argCheck("-" + string(arg.ShortName))) {
+		if !argCheck("--"+arg.LongName) && (arg.ShortName == 0 || !argCheck("-"+string(arg.ShortName))) {
 			fmt.Printf(errorHelp(isTerminal))
 			os.Exit(-1)
 		}
