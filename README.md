@@ -25,6 +25,9 @@ longOpt := clap.Int(0, "long-option", 15, "Long-option only [default: 15], false
 
 Since short options are runes, an empty short option can be specified with a 0 (see the example).
 
+Long options must be prefixed with a double dash (`--name`) and short options with a single dash (`-n`), otherwise
+an error message is displayed. Values can be provided either as a separate argument or after `=` (`--name=value`).
+
 If an option is marked as required, but is not provided on the command line, an error message is displayed and the
 program will exit with status code 255.
 

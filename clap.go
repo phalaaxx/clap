@@ -32,12 +32,12 @@ import (
 	"os"
 	"path"
 	"strings"
+	"unicode/utf8"
 )
 
 /* argumentHelp stores command line arguments info */
 type argumentHelp struct {
 	HasValue  bool
-	ArgLen    int
 	ShortName rune
 	LongName  string
 	HelpText  string
@@ -45,74 +45,97 @@ type argumentHelp struct {
 	Value     interface{}
 }
 
-/* String representation of the argument help */
-func (a argumentHelp) String(isTerminal bool, maxLen int) (result string) {
-	/* option creates a printable option representation */
-	option := func(name string, short bool, isTerminal bool) string {
-		if len(name) == 0 {
-			return ""
-		}
-		shortOption := map[bool]string{
-			true:  "-",
-			false: "--",
-		}
-		if !isTerminal {
-			return fmt.Sprintf("%s%s", shortOption[short], name)
-		}
-		return fmt.Sprintf("\033[01;38m%s%s\033[00m", shortOption[short], name)
-	}
-
-	optLen := func(maxLen int) (oLen int) {
-		oLen = maxLen - a.ArgLen + 2
-		if !a.HasValue {
-			oLen += 3
-		}
-		return
-	}
-	/* build option string */
-	var optionStr string
-	if a.ShortName != 0 {
-		if len(a.LongName) != 0 {
-			optionStr = fmt.Sprintf(
-				"  %s, %s",
-				option(string(a.ShortName), true, isTerminal),
-				option(a.LongName, false, isTerminal),
-			)
-		} else {
-			optionStr = fmt.Sprintf(
-				"  %s",
-				option(string(a.ShortName), true, isTerminal),
-			)
-		}
-	} else {
-		if len(a.LongName) != 0 {
-			optionStr = fmt.Sprintf(
-				"      %s",
-				option(a.LongName, false, isTerminal),
-			)
-		}
-	}
-	if a.HasValue {
-		if len(a.LongName) != 0 {
-			optionStr = fmt.Sprintf("%s <%s>", optionStr, strings.ToUpper(a.LongName))
-		}
-	}
-	/* add padding */
-	optionStr = fmt.Sprintf(
-		"%s%s%s",
-		optionStr,
-		strings.Repeat(" ", optLen(maxLen)),
-		a.HelpText,
-	)
-	fmt.Printf("%s\n", optionStr)
-	return
-}
-
 /* global variables */
 var (
 	argHelp    []argumentHelp
 	isTerminal bool
 )
+
+/* paint wraps text in the specified ANSI escape sequence when output is a terminal */
+func paint(code string, text string) string {
+	if !isTerminal {
+		return text
+	}
+	return fmt.Sprintf("\033[%sm%s\033[0m", code, text)
+}
+
+/* ANSI styles */
+const (
+	styleBold      = "1"
+	styleUnderline = "1;4"
+	styleError     = "1;31"
+	styleRequired  = "32"
+)
+
+/* placeholder returns the value placeholder of the argument */
+func (a argumentHelp) placeholder() string {
+	if len(a.LongName) == 0 {
+		return "<VALUE>"
+	}
+	return fmt.Sprintf("<%s>", strings.ToUpper(a.LongName))
+}
+
+/* flagName returns the preferred (long if available) option name with dashes */
+func (a argumentHelp) flagName() string {
+	if len(a.LongName) != 0 {
+		return "--" + a.LongName
+	}
+	return "-" + string(a.ShortName)
+}
+
+/* usage returns option name followed by value placeholder, e.g. "--name <NAME>" */
+func (a argumentHelp) usage(style string) string {
+	if !a.HasValue {
+		return paint(style, a.flagName())
+	}
+	return fmt.Sprintf("%s %s", paint(style, a.flagName()), a.placeholder())
+}
+
+/* option returns the plain and colored representations of the option column */
+func (a argumentHelp) option() (plain string, colored string) {
+	var names []string
+	var coloredNames []string
+	if a.ShortName != 0 {
+		names = append(names, "-"+string(a.ShortName))
+	} else {
+		/* align long-only options with the long names of other options */
+		names = append(names, "  ")
+	}
+	if len(a.LongName) != 0 {
+		names = append(names, "--"+a.LongName)
+	}
+	for _, name := range names {
+		if strings.TrimSpace(name) == "" {
+			coloredNames = append(coloredNames, name)
+		} else {
+			coloredNames = append(coloredNames, paint(styleBold, name))
+		}
+	}
+	separator := ", "
+	if a.ShortName == 0 {
+		separator = "  "
+	}
+	plain = "  " + strings.Join(names, separator)
+	colored = "  " + strings.Join(coloredNames, separator)
+	if a.HasValue {
+		plain = fmt.Sprintf("%s %s", plain, a.placeholder())
+		colored = fmt.Sprintf("%s %s", colored, a.placeholder())
+	}
+	return
+}
+
+/* String representation of the argument help, padded to maxLen */
+func (a argumentHelp) String(maxLen int) string {
+	plain, colored := a.option()
+	padding := maxLen - utf8.RuneCountInString(plain) + 2
+	return fmt.Sprintf("%s%s%s\n", colored, strings.Repeat(" ", padding), a.HelpText)
+}
+
+/* isBoolFlag returns true if the flag value does not need an argument */
+func isBoolFlag(value flag.Value) bool {
+	boolFlag, ok := value.(interface{ IsBoolFlag() bool })
+	return ok && boolFlag.IsBoolFlag()
+}
 
 /* genericAddVar is a wrapper around flag functions to add command line arguments */
 func genericAddVar[T any](data *T, name string, initial T, usage string) {
@@ -144,17 +167,11 @@ func genericVar[T any](result *T, short rune, long string, value T, usage string
 		genericAddVar[T](result, long, value, usage)
 	}
 	_, isBool := any(value).(bool)
-	/* calculate options length multiplier */
-	multiplier := 1
-	if !isBool {
-		multiplier = 2
-	}
 	/* update help data */
 	argHelp = append(
 		argHelp,
 		argumentHelp{
 			HasValue:  !isBool,
-			ArgLen:    4 + multiplier*len(long),
 			ShortName: short,
 			LongName:  long,
 			HelpText:  usage,
@@ -205,8 +222,7 @@ func Var(value flag.Value, shortName rune, longName string, helpText string, req
 	argHelp = append(
 		argHelp,
 		argumentHelp{
-			HasValue:  true,
-			ArgLen:    4 + 2*len(longName),
+			HasValue:  !isBoolFlag(value),
 			ShortName: shortName,
 			LongName:  longName,
 			HelpText:  helpText,
@@ -216,162 +232,146 @@ func Var(value flag.Value, shortName rune, longName string, helpText string, req
 	)
 }
 
-/* errorHelp renders error message when required arguments are missing */
-func errorHelp(isTerminal bool) string {
-	/* prepare error message header */
-	fmtStr := "\033[01;31merror:\033[00m the following arguments are not provided:\n"
-	if !isTerminal {
-		fmtStr = "error: the following arguments are not provided:\n"
+/* helpTip returns the hint printed at the end of error messages */
+func helpTip() string {
+	return fmt.Sprintf("For more information, try '%s'.\n", paint(styleBold, "--help"))
+}
+
+/* usageLine returns program usage with all required arguments */
+func usageLine(options bool) string {
+	result := fmt.Sprintf("%s %s", paint(styleUnderline, "Usage:"), paint(styleBold, path.Base(os.Args[0])))
+	if options {
+		result += " [OPTIONS]"
 	}
-	/* add arguments to error message */
 	for _, arg := range argHelp {
 		if arg.Required {
-			argStr := "  \033[00;32m--%s <%s>\033[00m\n"
-			if !isTerminal {
-				argStr = "  --%s <%s>\n"
-			}
-			fmtStr = fmt.Sprintf(
-				"%s%s",
-				fmtStr,
-				fmt.Sprintf(argStr, arg.LongName, strings.ToUpper(arg.LongName)),
-			)
+			result = fmt.Sprintf("%s %s", result, arg.usage(styleBold))
 		}
 	}
-	/* add usage information */
-	usageHelp := "\033[04m\033[01;38mUsage:\033[00m \033[01;38m%s\033[00m"
-	if !isTerminal {
-		usageHelp = "Usage: %s"
-	}
-	for _, arg := range argHelp {
-		if !arg.Required {
-			continue
-		}
-		argHelp := "\033[01;38m--%s\033[00m <%s>"
-		if !isTerminal {
-			argHelp = "--%s <%s>"
-		}
-		usageHelp = fmt.Sprintf(
-			"%s %s",
-			fmt.Sprintf(
-				usageHelp,
-				path.Base(os.Args[0]),
-			),
-			fmt.Sprintf(
-				argHelp,
-				arg.LongName,
-				strings.ToUpper(arg.LongName),
-			),
-		)
-	}
-	fmtStr = fmt.Sprintf("%s\n%s\n", fmtStr, usageHelp)
-	/* add help tip */
-	helpTip := "For more information, try '\033[01;38m--help\033[00m'."
-	if !isTerminal {
-		helpTip = "For more information, try '--help'."
-	}
+	return result
+}
 
-	return fmt.Sprintf("%s\n%s\n", fmtStr, helpTip)
+/* exitError prints an error message followed by help tip and exits */
+func exitError(message string) {
+	fmt.Fprintf(flag.CommandLine.Output(), "%s %s\n\n%s", paint(styleError, "error:"), message, helpTip())
+	os.Exit(-1)
+}
+
+/* errorHelp renders error message for the missing required arguments */
+func errorHelp(missing []argumentHelp) string {
+	var result strings.Builder
+	fmt.Fprintf(&result, "%s the following arguments are not provided:\n", paint(styleError, "error:"))
+	for _, arg := range missing {
+		fmt.Fprintf(&result, "  %s\n", arg.usage(styleRequired))
+	}
+	fmt.Fprintf(&result, "\n%s\n\n%s", usageLine(false), helpTip())
+	return result.String()
 }
 
 /* usageHeader prints flags usage header */
-func usageHeader(isTerminal bool) string {
-	var header string
-	var fmtStr string
-	header = "\033[04m\033[01;38mUsage:\033[00m \033[01;38m%s\033[00m [OPTIONS]"
-	if !isTerminal {
-		header = "Usage: %s [OPTIONS]"
-	}
-	for _, arg := range argHelp {
-		if arg.Required {
-			fmtStr = "%s \033[01;38m--%s\033[00m <%s>"
-			if !isTerminal {
-				fmtStr = "%s --%s <%s>"
-			}
-			header = fmt.Sprintf(
-				fmtStr,
-				header,
-				arg.LongName,
-				strings.ToUpper(arg.LongName),
-			)
-		}
-	}
-	optHdr := "\033[04m\033[01;38mOptions:\033[00m"
-	if !isTerminal {
-		optHdr = "Options:"
-	}
-	return fmt.Sprintf(
-		"%s\n\n%s",
-		fmt.Sprintf(header, path.Base(os.Args[0])),
-		optHdr,
-	)
+func usageHeader() string {
+	return fmt.Sprintf("%s\n\n%s", usageLine(true), paint(styleUnderline, "Options:"))
 }
 
 /* ErrNoArg prints error and exits when no arguments are provided while at least one is required */
 func ErrNoArg() {
-	if isTerminal {
-		fmt.Printf(
-			"\033[01;31merror:\033[00m no arguments are provided\n\n" +
-				"For more information, try '\033[01;38m--help\033[00m'.\n",
-		)
-	} else {
-		fmt.Printf(
-			"error: no arguments are provided\n\n" +
-				"For more information, try '--help'.",
-		)
+	exitError("no arguments are provided")
+}
+
+/* lookupArg returns the argument with the specified short or long name */
+func lookupArg(name string) *argumentHelp {
+	for idx := range argHelp {
+		arg := &argHelp[idx]
+		if name == arg.LongName || (arg.ShortName != 0 && name == string(arg.ShortName)) {
+			return arg
+		}
 	}
-	os.Exit(-1)
+	return nil
+}
+
+/* checkDashes makes sure long options are used with "--" and short options with "-" */
+func checkDashes(args []string) {
+	for idx := 0; idx < len(args); idx++ {
+		/* flag parsing stops at the first non-flag argument or at the "--" terminator */
+		arg := args[idx]
+		if len(arg) < 2 || arg[0] != '-' || arg == "--" {
+			return
+		}
+		name, dashes := arg[1:], 1
+		if name[0] == '-' {
+			name, dashes = name[1:], 2
+		}
+		name, _, hasValue := strings.Cut(name, "=")
+		option := lookupArg(name)
+		if option == nil {
+			/* unknown options are reported by flag.Parse */
+			continue
+		}
+		isShort := option.ShortName != 0 && name == string(option.ShortName)
+		if isShort && dashes != 1 {
+			exitError(fmt.Sprintf("unexpected argument '%s', did you mean '-%s'?", arg, name))
+		}
+		if !isShort && dashes != 2 {
+			exitError(fmt.Sprintf("unexpected argument '%s', did you mean '--%s'?", arg, name))
+		}
+		/* skip the option value */
+		if option.HasValue && !hasValue {
+			idx++
+		}
+	}
 }
 
 /* Parse is a wrapper around flag.Parse function */
 func Parse(required bool) {
-	/* argCheck returns true if specified option is provided as a command line argument */
-	argCheck := func(arg string) bool {
-		for _, opt := range os.Args {
-			if arg == opt {
-				return true
-			}
-		}
-		return false
-	}
 	/* print error on empty arguments list when at least one argument is required */
 	if required && len(os.Args) == 1 {
 		ErrNoArg()
 	}
 	/* parse and check if required arguments are provided */
+	checkDashes(os.Args[1:])
 	flag.Parse()
+	provided := make(map[string]bool)
+	flag.Visit(func(f *flag.Flag) {
+		provided[f.Name] = true
+	})
+	var missing []argumentHelp
 	for _, arg := range argHelp {
 		/* do not check non-mandatory and bool arguments */
 		if !arg.Required || !arg.HasValue {
 			continue
 		}
 		/* make sure value is provided */
-		if !argCheck("--"+arg.LongName) && (arg.ShortName == 0 || !argCheck("-"+string(arg.ShortName))) {
-			fmt.Printf(errorHelp(isTerminal))
-			os.Exit(-1)
+		if !provided[arg.LongName] && (arg.ShortName == 0 || !provided[string(arg.ShortName)]) {
+			missing = append(missing, arg)
 		}
+	}
+	if len(missing) != 0 {
+		fmt.Fprint(flag.CommandLine.Output(), errorHelp(missing))
+		os.Exit(-1)
 	}
 }
 
 /* initialize clap parser */
 func init() {
-	/* determine if program is running inside a terminal */
-	if fileInfo, _ := os.Stdout.Stat(); (fileInfo.Mode() & os.ModeCharDevice) != 0 {
-		isTerminal = true
+	/* determine if output (stderr, same as flag package) goes to a color capable terminal */
+	if fileInfo, err := os.Stderr.Stat(); err == nil && (fileInfo.Mode()&os.ModeCharDevice) != 0 {
+		_, noColor := os.LookupEnv("NO_COLOR")
+		isTerminal = !noColor && os.Getenv("TERM") != "dumb"
 	}
 	/* replace flag usage */
 	flag.Usage = func() {
 		maxLength := int(0)
 		/* get the length of the longest argument */
-		for idx := range argHelp {
-			if argHelp[idx].ArgLen > maxLength {
-				maxLength = argHelp[idx].ArgLen
-			}
+		for _, arg := range argHelp {
+			plain, _ := arg.option()
+			maxLength = max(maxLength, utf8.RuneCountInString(plain))
 		}
 		/* print header */
-		fmt.Printf("%s\n", usageHeader(isTerminal))
+		out := flag.CommandLine.Output()
+		fmt.Fprintf(out, "%s\n", usageHeader())
 		/* print options */
 		for _, arg := range argHelp {
-			fmt.Printf(arg.String(isTerminal, maxLength))
+			fmt.Fprint(out, arg.String(maxLength))
 		}
 	}
 }
